@@ -118,7 +118,7 @@ function postCard(post) {
 }
 
 function newsView() {
-  return `<section class="newsroom"><div class="section-head"><h2>Latest from the scene</h2><span>Publisher updates</span></div><div class="empty-state"><div class="empty-icon">◫</div><h3>No newsroom updates yet</h3><p>Verified artist news and opportunities will appear here when published by PAUL APPORG.</p><a class="primary-btn" href="https://paulapporg.com" target="_blank" rel="noreferrer">Visit PAUL APPORG ↗</a></div></section>`;
+  return `<section class="newsroom"><div class="section-head"><h2>Latest from the scene</h2><span>Publisher updates</span></div><div class="empty-state"><div class="empty-icon">◫</div><h3>No newsroom updates yet</h3><p>Verified artist news and opportunities will appear here when published by PAUL APPORG.</p><a class="primary-btn" href="https://paulapporg.com" target="_blank" rel="noreferrer">Visit PAUL APPORG ↗</a><a class="admin-link" href="https://supabase.com/dashboard/project/cneexpeuohusulhksmaa" target="_blank" rel="noreferrer">PAUL APPORG Admin · Publish or update news ↗</a></div></section>`;
 }
 
 function profileView() {
