@@ -1,5 +1,8 @@
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
+const supabaseClient = window.supabase && window.PAUL_SUPABASE_URL
+  ? window.supabase.createClient(window.PAUL_SUPABASE_URL, window.PAUL_SUPABASE_ANON_KEY)
+  : null;
 let deferredInstallPrompt = null;
 const savedPosts = JSON.parse(localStorage.getItem("paulPosts") || "[]");
 const oldDemoNames = ["Mpho Mokoena", "Thabo Nthunya", "Lineo Khasu"];
@@ -50,6 +53,24 @@ function installApp() {
 window.addEventListener("beforeinstallprompt", event => { event.preventDefault(); deferredInstallPrompt = event; document.querySelectorAll("[data-install]").forEach(button => button.classList.remove("hidden")); });
 window.addEventListener("appinstalled", () => { deferredInstallPrompt = null; document.querySelectorAll("[data-install]").forEach(button => button.classList.add("hidden")); toast("Paul Sketches has been installed."); });
 function openChat(artist) { state.chatArtist = artist; state.view = "chat"; renderApp(); }
+async function loadSharedArtworks() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient.from("artworks").select("*").order("created_at", { ascending: false });
+  if (error) { console.warn("Supabase artwork feed unavailable:", error.message); return; }
+  state.posts = data.map(post => ({ ...post, date: new Date(post.created_at).toLocaleDateString(), liked: false }));
+  save();
+  if (state.user) renderApp();
+}
+function subscribeToArtworks() {
+  if (!supabaseClient) return;
+  supabaseClient.channel("public-artworks").on("postgres_changes", { event: "INSERT", schema: "public", table: "artworks" }, payload => {
+    if (!state.posts.some(post => post.id === payload.new.id)) {
+      state.posts.unshift({ ...payload.new, date: "Just now", liked: false });
+      save();
+      if (state.user) { renderApp(); toast(`${payload.new.artist} uploaded new artwork to NTLONG.`); }
+    }
+  }).subscribe();
+}
 
 function renderAuth() {
   const stats = communityStats();
@@ -130,7 +151,7 @@ function bindView() {
 }
 
 function openUpload() {
-  const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-head"><div><div class="eyebrow">Artist studio</div><h2>Share a new piece</h2></div><button class="close">×</button></div><form id="upload-form"><div class="form-grid"><div class="field full"><label for="piece-title">Title</label><input id="piece-title" name="title" required placeholder="Name your work" /></div><div class="field full"><label for="piece-file">Artwork image</label><input id="piece-file" name="file" type="file" accept="image/*" required /></div><div class="field"><label for="piece-price">Starting valuation (M)</label><input id="piece-price" name="price" type="number" min="1" required placeholder="1200" /></div><div class="field"><label for="piece-medium">Medium</label><input id="piece-medium" name="medium" required placeholder="Oil on canvas" /></div><div class="field full"><label for="piece-description">Description</label><textarea id="piece-description" name="description" required placeholder="Tell the community about this piece..."></textarea></div></div><button class="primary-btn" style="margin-top:18px;width:100%" type="submit">Publish artwork</button></form></div>`; document.body.append(modal); modal.querySelector(".close").onclick = () => modal.remove(); modal.onclick = event => { if (event.target === modal) modal.remove(); }; modal.querySelector("#upload-form").onsubmit = event => { event.preventDefault(); const form = event.target; const data = Object.fromEntries(new FormData(form)); const file = form.querySelector("#piece-file").files[0]; const publish = image => { state.posts.unshift({ id: Date.now(), artist: state.user.name, initials: state.user.initials, tag: "Artist", date: "Just now", title: data.title, description: `${data.description} · ${data.medium}`, image, likes: 0, liked: false, price: Number(data.price) }); save(); modal.remove(); renderApp(); toast("Artwork published successfully — your community has been notified."); }; const reader = new FileReader(); reader.onload = () => publish(reader.result); reader.onerror = () => toast("The image could not be read. Please choose another file."); reader.readAsDataURL(file); }; }
+  const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-head"><div><div class="eyebrow">Artist studio</div><h2>Share a new piece</h2></div><button class="close">×</button></div><form id="upload-form"><div class="form-grid"><div class="field full"><label for="piece-title">Title</label><input id="piece-title" name="title" required placeholder="Name your work" /></div><div class="field full"><label for="piece-file">Artwork image</label><input id="piece-file" name="file" type="file" accept="image/*" required /></div><div class="field"><label for="piece-price">Starting valuation (M)</label><input id="piece-price" name="price" type="number" min="1" required placeholder="1200" /></div><div class="field"><label for="piece-medium">Medium</label><input id="piece-medium" name="medium" required placeholder="Oil on canvas" /></div><div class="field full"><label for="piece-description">Description</label><textarea id="piece-description" name="description" required placeholder="Tell the community about this piece..."></textarea></div></div><button class="primary-btn" style="margin-top:18px;width:100%" type="submit">Publish artwork</button></form></div>`; document.body.append(modal); modal.querySelector(".close").onclick = () => modal.remove(); modal.onclick = event => { if (event.target === modal) modal.remove(); };   modal.querySelector("#upload-form").onsubmit = async event => { event.preventDefault(); const form = event.target; const data = Object.fromEntries(new FormData(form)); const file = form.querySelector("#piece-file").files[0]; if (!supabaseClient) { toast("The shared artwork service is not available."); return; } const path = `${Date.now()}-${file.name.replace(/[^a-z0-9.-]/gi, "-")}`; const { error: uploadError } = await supabaseClient.storage.from("artworks").upload(path, file, { contentType: file.type, upsert: false }); if (uploadError) { toast(`Image upload failed: ${uploadError.message}`); return; } const { data: imageData } = supabaseClient.storage.from("artworks").getPublicUrl(path); const { error: insertError } = await supabaseClient.from("artworks").insert({ artist: state.user.name, initials: state.user.initials, title: data.title, description: `${data.description} · ${data.medium}`, image: imageData.publicUrl, likes: 0, price: Number(data.price) }); if (insertError) { toast(`Artwork could not be published: ${insertError.message}`); return; } modal.remove(); toast("Artwork published to NTLONG for everyone."); }; }
 
 window.addEventListener("storage", event => {
   if (event.key === "paulArtistAnnouncement" && state.user && state.user.role !== "artist") {
@@ -143,4 +164,6 @@ window.addEventListener("storage", event => {
     }
   }
 });
+subscribeToArtworks();
+loadSharedArtworks();
 if (state.user) renderApp(); else renderAuth();
