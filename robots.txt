@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://khalanesekantsi1-source.github.io/paulsketches/sitemap.xml
