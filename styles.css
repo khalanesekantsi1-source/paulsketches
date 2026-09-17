@@ -16,6 +16,11 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; border: 0; }
 .hidden { display: none !important; }
 .serif { font-family: "Playfair Display", Georgia, serif; }
+.session-loading { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 14px; color: var(--muted); }
+.session-loading .brand { color: var(--ink); }
+.session-loading p { margin: 0; font-size: .82rem; }
+.loading-spinner { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--coral); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Landing and authentication */
 .landing { min-height: 100vh; display: grid; grid-template-columns: 1.02fr .98fr; overflow: hidden; }

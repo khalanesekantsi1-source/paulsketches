@@ -1,7 +1,9 @@
 const app = document.querySelector("#app");
 const toastRegion = document.querySelector("#toast-region");
 const supabaseClient = window.supabase && window.PAUL_SUPABASE_URL
-  ? window.supabase.createClient(window.PAUL_SUPABASE_URL, window.PAUL_SUPABASE_ANON_KEY)
+  ? window.supabase.createClient(window.PAUL_SUPABASE_URL, window.PAUL_SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  })
   : null;
 let deferredInstallPrompt = null;
 const savedPosts = JSON.parse(localStorage.getItem("paulPosts") || "[]");
@@ -18,6 +20,10 @@ function tag(role) { return `<span class="tag">${role}</span>`; }
 function announceNewArtist(artist) {
   const announcement = { name: artist.name, initials: artist.initials, district: artist.location || "", at: Date.now() };
   localStorage.setItem("paulArtistAnnouncement", JSON.stringify(announcement));
+}
+
+function renderSessionLoading() {
+  app.innerHTML = `<main class="session-loading"><div class="brand"><span class="brand-mark">P</span><span>PAUL SKETCHES</span></div><div class="loading-spinner" aria-hidden="true"></div><p>Restoring your secure session…</p></main>`;
 }
 function notifyAboutNewArtist() {
   const announcement = JSON.parse(localStorage.getItem("paulArtistAnnouncement") || "null");
@@ -107,10 +113,17 @@ async function reportArtwork(post) {
   else toast("Thank you. This artwork has been sent for review.");
 }
 async function restoreSupabaseSession() {
-  if (!supabaseClient) return;
+  if (!supabaseClient) {
+    if (state.user) renderApp();
+    else renderAuth();
+    return;
+  }
   const { data, error } = await supabaseClient.auth.getSession();
   if (error) {
     console.warn("Could not restore Supabase session:", error.message);
+    state.user = null;
+    localStorage.removeItem("paulUser");
+    renderAuth();
     return;
   }
   if (!data.session) {
@@ -121,13 +134,16 @@ async function restoreSupabaseSession() {
   }
   if (data.session) {
     const metadata = data.session.user.user_metadata || {};
+    const savedUser = JSON.parse(localStorage.getItem("paulUser") || "null");
     state.user = {
       id: data.session.user.id,
-      name: metadata.name || data.session.user.email || "Paul Sketches member",
+      name: metadata.name || savedUser?.name || data.session.user.email || "Paul Sketches member",
       email: data.session.user.email || "",
-      role: metadata.role || "viewer",
-      initials: initials(metadata.name || data.session.user.email || "PS"),
-      notifications: 0
+      dob: savedUser?.dob || "",
+      role: metadata.role || savedUser?.role || "viewer",
+      initials: initials(metadata.name || savedUser?.name || data.session.user.email || "PS"),
+      notifications: savedUser?.notifications || 0,
+      lastArtistAnnouncement: savedUser?.lastArtistAnnouncement || 0
     };
     save();
     await loadSocialState();
@@ -306,9 +322,8 @@ window.addEventListener("storage", event => {
 });
 subscribeToArtworks();
 subscribeToSocialActivity();
-loadSharedArtworks();
 if (supabaseClient) {
-  renderAuth();
+  renderSessionLoading();
   restoreSupabaseSession();
 } else if (state.user) renderApp();
 else renderAuth();
