@@ -48,7 +48,7 @@ function Feed({ user }: { user: User }) {
   useEffect(() => { const unsub = onSnapshot(doc(db, "users", user.uid), snap => setProfile(snap.data() as Profile)); return unsub; }, [user.uid]);
   useEffect(() => onSnapshot(query(collection(db, "posts"), orderBy("createdAt", "desc")), snap => setPosts(snap.docs.map(d => d.data() as Post))), []);
   if (!profile) return <div className="grid min-h-screen place-items-center">Loading…</div>;
-  return <><Navbar user={user} /><main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[220px_minmax(0,640px)_220px]"><Sidebars profile={profile} /><section><CreatePost profile={profile} /><div className="space-y-5">{posts.map(post => <PostCard key={post.id} post={post} uid={user.uid} />)}</div></section><Sidebars profile={profile} right /></main></>;
+  return <><Navbar user={user} /><main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[220px_minmax(0,640px)_220px]"><Sidebars profile={profile} /><section><div className="mb-5"><h1 className="text-2xl font-bold text-slate-900">Good day, {profile.displayName}.</h1><p className="mt-1 text-sm text-slate-500">See what your community is sharing.</p></div><CreatePost profile={profile} /><div className="space-y-5">{posts.map(post => <PostCard key={post.id} post={post} uid={user.uid} />)}</div></section><Sidebars profile={profile} right /></main></>;
 }
 
 function ProfilePage({ user }: { user: User }) {
