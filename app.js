@@ -8,7 +8,7 @@ const savedPosts = JSON.parse(localStorage.getItem("paulPosts") || "[]");
 const oldDemoNames = ["Mpho Mokoena", "Thabo Nthunya", "Lineo Khasu"];
 const realPosts = Array.isArray(savedPosts) ? savedPosts.filter(post => !oldDemoNames.includes(post.artist)) : [];
 localStorage.setItem("paulPosts", JSON.stringify(realPosts));
-let state = { role: null, user: JSON.parse(localStorage.getItem("paulUser") || "null"), posts: realPosts, chats: JSON.parse(localStorage.getItem("paulChats") || "[]"), view: "home", chatArtist: null };
+let state = { role: null, user: JSON.parse(localStorage.getItem("paulUser") || "null"), posts: realPosts, chats: JSON.parse(localStorage.getItem("paulChats") || "[]"), view: "home", chatArtist: null, otpEmail: null, otpDob: null };
 
 function initials(name) { return name.split(" ").map(word => word[0]).slice(0, 2).join("").toUpperCase(); }
 function save() { localStorage.setItem("paulUser", JSON.stringify(state.user)); localStorage.setItem("paulPosts", JSON.stringify(state.posts)); localStorage.setItem("paulChats", JSON.stringify(state.chats)); }
@@ -109,31 +109,56 @@ function subscribeToArtworks() {
 
 function renderAuth() {
   const stats = communityStats();
-  app.innerHTML = `<main class="landing"><section class="landing-visual"><div class="brand"><span class="brand-mark">P</span><span>PAUL SKETCHES</span></div><div class="landing-copy"><div class="eyebrow">The Lesotho art network</div><h1 class="serif">Where local art finds its people.</h1><p>Discover, collect and connect with artists shaping the visual story of Lesotho.</p></div><div class="visual-note"><div><strong>${stats.artworks}</strong>artworks shared</div><div><strong>${stats.artists}</strong>artists represented</div><div><strong>${stats.likes}</strong>community likes</div></div><div class="landing-links"><button class="install-btn hidden" data-install>⇩ Install app</button><button class="landing-share" id="landing-share">↗ Share link</button><a href="https://paulapporg.com" target="_blank" rel="noreferrer">PAUL APPORG ↗</a></div></section><section class="auth-panel"><div class="eyebrow">Welcome to the community</div><h2 class="serif">How will you join us?</h2><p>Choose your space. You can explore as a viewer or share your work as a Lesotho artist.</p><div class="role-grid"><button class="role-card ${state.role === "artist" ? "active" : ""}" data-role="artist"><div class="role-icon">✦</div><strong>I'm an artist</strong><small>Share your work and build your audience.</small></button><button class="role-card ${state.role === "viewer" ? "active" : ""}" data-role="viewer"><div class="role-icon">◌</div><strong>I'm a viewer</strong><small>Discover, value and connect with artists.</small></button></div><div id="auth-form">${state.role ? authForm() : '<p class="hint">Select a role above to begin. Artists must be 15 years or older.</p>'}</div></section></main>`;
+  app.innerHTML = `<main class="landing"><section class="landing-visual"><div class="brand"><span class="brand-mark">P</span><span>PAUL SKETCHES</span></div><div class="landing-copy"><div class="eyebrow">The Lesotho art network</div><h1 class="serif">Where local art finds its people.</h1><p>Discover, collect and connect with artists shaping the visual story of Lesotho.</p></div><div class="visual-note"><div><strong>${stats.artworks}</strong>artworks shared</div><div><strong>${stats.artists}</strong>artists represented</div><div><strong>${stats.likes}</strong>community likes</div></div><div class="landing-links"><button class="install-btn hidden" data-install>⇩ Install app</button><button class="landing-share" id="landing-share">↗ Share link</button><a href="https://paulapporg.com" target="_blank" rel="noreferrer">PAUL APPORG ↗</a></div></section><section class="auth-panel"><div class="eyebrow">Secure sign in</div><h2 class="serif">Welcome to Paul Sketches.</h2><p>Choose how you are joining, then confirm your email with a one-time code.</p><div class="role-grid"><button class="role-card ${state.role === "artist" ? "active" : ""}" data-role="artist"><div class="role-icon">✦</div><strong>I'm an artist</strong><small>Share your work. Artists must be 15+.</small></button><button class="role-card ${state.role === "viewer" ? "active" : ""}" data-role="viewer"><div class="role-icon">◌</div><strong>I'm a viewer</strong><small>Discover, value and connect with artists.</small></button></div><div id="auth-form">${state.otpEmail ? otpForm() : state.role ? authForm() : '<p class="hint">Select a role above to continue with email sign-in.</p>'}</div></section></main>`;
   document.querySelectorAll("[data-role]").forEach(button => button.onclick = () => { state.role = button.dataset.role; renderAuth(); });
   const form = document.querySelector("#login-form");
-  if (form) form.onsubmit = handleAuth;
+  if (form) form.onsubmit = sendEmailCode;
+  const otp = document.querySelector("#otp-form");
+  if (otp) otp.onsubmit = verifyEmailCode;
+  const changeEmail = document.querySelector("#change-email");
+  if (changeEmail) changeEmail.onclick = () => { state.otpEmail = null; state.otpDob = null; renderAuth(); };
   document.querySelector("#landing-share").onclick = () => shareLink("app", "paul-sketches");
   document.querySelectorAll("[data-install]").forEach(button => button.onclick = installApp);
 }
 
 function authForm() {
-  return `<form id="login-form"><div class="form-grid"><div class="field"><label for="name">Full name</label><input id="name" name="name" required placeholder="e.g. 'Mpho Mokoena'" /></div><div class="field"><label for="email">Email <span style="color:var(--muted);font-weight:400">(for secure sign-in)</span></label><input id="email" name="email" type="email" required placeholder="you@example.com" /></div><div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required minlength="6" placeholder="At least 6 characters" /></div><div class="field"><label for="dob">Date of birth</label><input id="dob" name="dob" type="date" required /></div><div class="field"><label for="gender">Gender</label><select id="gender" name="gender" required><option value="">Select one</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select></div>${state.role === "artist" ? '<div class="field"><label for="location">District</label><select id="location" name="location" required><option value="">Select district</option><option>Maseru</option><option>Leribe</option><option>Berea</option><option>Mafeteng</option><option>Mohale’s Hoek</option><option>Qacha’s Nek</option><option>Quthing</option><option>Mokhotlong</option><option>Thaba-Tseka</option><option>Butha-Buthe</option></select></div><div class="field full"><label for="statement">Artist statement</label><textarea id="statement" name="statement" required placeholder="What is the story behind your practice?"></textarea></div><div class="field full"><label for="bio">Short bio</label><textarea id="bio" name="bio" required placeholder="Tell the community about yourself..."></textarea></div>' : ""}</div><p class="hint">${state.role === "artist" ? "Artist access is available to people aged 15 and above." : "Your viewer profile lets you follow artists, value pieces and send messages."} Your session will be restored automatically next time.</p><button class="primary-btn" type="submit">Enter Paul Sketches →</button></form>`;
+  return `<form id="login-form"><div class="form-grid"><div class="field full"><label for="email">Email address</label><input id="email" name="email" type="email" required autocomplete="email" placeholder="you@example.com" /></div><div class="field full"><label for="dob">Date of birth</label><input id="dob" name="dob" type="date" required /></div></div><p class="hint">${state.role === "artist" ? "Your date of birth confirms that you are 15 or older before an email code is sent." : "We will send a one-time confirmation code to this email. No password is required."}</p><button class="primary-btn" type="submit">Send confirmation code →</button></form>`;
 }
 
-function handleAuth(event) {
+function ageFromDate(date) {
+  const birth = new Date(`${date}T00:00:00`);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  if (today < new Date(today.getFullYear(), birth.getMonth(), birth.getDate())) age -= 1;
+  return age;
+}
+async function sendEmailCode(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
-  if (state.role === "artist") { const age = new Date().getFullYear() - new Date(data.dob).getFullYear(); if (age < 15) { toast("Artists must be 15 years or older."); return; } }
-  if (supabaseClient) {
-    const { data: authData, error } = await supabaseClient.auth.signInWithPassword({ email: data.email, password: data.password });
-    if (error || !authData.session) {
-      toast(error ? error.message : "Secure sign-in failed.");
-      return;
-    }
-  }
-  state.user = { ...data, role: state.role, initials: initials(data.name), notifications: 0 };
-  save(); if (state.role === "artist") announceNewArtist(state.user); renderApp(); toast(`Welcome to Paul Sketches, ${data.name.split(" ")[0]}!`);
+  if (state.role === "artist" && ageFromDate(data.dob) < 15) { toast("Artist access requires you to be at least 15 years old."); return; }
+  if (!supabaseClient) { toast("Secure email sign-in is unavailable."); return; }
+  const { error } = await supabaseClient.auth.signInWithOtp({ email: data.email, options: { shouldCreateUser: true } });
+  if (error) { toast(error.message); return; }
+  state.otpEmail = data.email;
+  state.otpDob = data.dob;
+  renderAuth();
+  toast(`A confirmation code was sent to ${data.email}.`);
+}
+function otpForm() {
+  return `<form id="otp-form"><div class="field"><label for="email-code">Email confirmation code</label><input id="email-code" name="code" inputmode="numeric" autocomplete="one-time-code" required minlength="6" maxlength="8" placeholder="Enter the code from your email" /></div><p class="hint">Check your inbox for the one-time code sent to <strong>${state.otpEmail}</strong>.</p><button class="primary-btn" type="submit">Confirm and continue →</button><button class="text-btn" id="change-email" type="button" style="display:block;margin-top:14px">Use a different email</button></form>`;
+}
+async function verifyEmailCode(event) {
+  event.preventDefault();
+  const code = new FormData(event.target).get("code");
+  const { data, error } = await supabaseClient.auth.verifyOtp({ email: state.otpEmail, token: code, type: "email" });
+  if (error || !data.session) { toast(error ? error.message : "That code could not be verified."); return; }
+  const name = data.session.user.user_metadata?.name || state.otpEmail.split("@")[0];
+  state.user = { name, email: state.otpEmail, dob: state.otpDob, role: state.role, initials: initials(name), notifications: 0 };
+  state.otpEmail = null;
+  save();
+  if (state.role === "artist") announceNewArtist(state.user);
+  renderApp();
+  toast(`Welcome to Paul Sketches, ${name}!`);
 }
 
 function renderApp() {
