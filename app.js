@@ -8,7 +8,8 @@ const savedPosts = JSON.parse(localStorage.getItem("paulPosts") || "[]");
 const oldDemoNames = ["Mpho Mokoena", "Thabo Nthunya", "Lineo Khasu"];
 const realPosts = Array.isArray(savedPosts) ? savedPosts.filter(post => !oldDemoNames.includes(post.artist)) : [];
 localStorage.setItem("paulPosts", JSON.stringify(realPosts));
-let state = { role: null, user: JSON.parse(localStorage.getItem("paulUser") || "null"), posts: realPosts, chats: JSON.parse(localStorage.getItem("paulChats") || "[]"), view: "home", chatArtist: null, otpEmail: null, otpDob: null };
+let state = { role: null, user: JSON.parse(localStorage.getItem("paulUser") || "null"), posts: realPosts, chats: JSON.parse(localStorage.getItem("paulChats") || "[]"), view: "home", chatArtist: null, chatArtistId: null, otpEmail: null, otpDob: null };
+let followedArtists = new Set();
 
 function initials(name) { return name.split(" ").map(word => word[0]).slice(0, 2).join("").toUpperCase(); }
 function save() { localStorage.setItem("paulUser", JSON.stringify(state.user)); localStorage.setItem("paulPosts", JSON.stringify(state.posts)); localStorage.setItem("paulChats", JSON.stringify(state.chats)); }
@@ -52,7 +53,59 @@ function installApp() {
 }
 window.addEventListener("beforeinstallprompt", event => { event.preventDefault(); deferredInstallPrompt = event; document.querySelectorAll("[data-install]").forEach(button => button.classList.remove("hidden")); });
 window.addEventListener("appinstalled", () => { deferredInstallPrompt = null; document.querySelectorAll("[data-install]").forEach(button => button.classList.add("hidden")); toast("Paul Sketches has been installed."); });
-function openChat(artist) { state.chatArtist = artist; state.view = "chat"; renderApp(); }
+async function openChat(artist, artistId) {
+  state.chatArtist = artist;
+  state.chatArtistId = artistId || null;
+  state.view = "chat";
+  renderApp();
+  if (supabaseClient && state.user?.id) {
+    const { data } = await supabaseClient.from("chat_messages").select("*").or(`sender_id.eq.${state.user.id},recipient_id.eq.${state.user.id}`).order("created_at");
+    state.chats = (data || []).filter(message => message.recipient_name === artist || message.sender_name === artist).map(message => ({ artist, from: message.sender_name, text: message.text, time: new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }));
+    renderApp();
+  }
+}
+async function loadSocialState() {
+  if (!supabaseClient || !state.user?.id) return;
+  const { data } = await supabaseClient.from("artist_follows").select("artist_id").eq("follower_id", state.user.id);
+  followedArtists = new Set((data || []).map(row => row.artist_id));
+  const { data: messages } = await supabaseClient.from("chat_messages").select("*").or(`sender_id.eq.${state.user.id},recipient_id.eq.${state.user.id}`).order("created_at");
+  state.chats = (messages || []).map(message => ({ artist: message.sender_id === state.user.id ? message.recipient_name : message.sender_name, from: message.sender_name, text: message.text, time: new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }));
+  save();
+}
+async function toggleFollow(artistId, artistName) {
+  if (!supabaseClient || !state.user?.id || !artistId) { toast("Sign in with email to follow artists."); return; }
+  if (followedArtists.has(artistId)) {
+    await supabaseClient.from("artist_follows").delete().eq("follower_id", state.user.id).eq("artist_id", artistId);
+    followedArtists.delete(artistId);
+    toast(`You unfollowed ${artistName}.`);
+  } else {
+    const { error } = await supabaseClient.from("artist_follows").insert({ follower_id: state.user.id, artist_id: artistId });
+    if (error) { toast(error.message); return; }
+    followedArtists.add(artistId);
+    toast(`You are now following ${artistName}.`);
+  }
+  renderApp();
+}
+async function likeArtwork(post) {
+  if (!supabaseClient || !state.user?.id) { toast("Sign in with email to like artwork."); return; }
+  const liked = post.liked;
+  const operation = liked
+    ? supabaseClient.from("artwork_likes").delete().eq("artwork_id", post.id).eq("user_id", state.user.id)
+    : supabaseClient.from("artwork_likes").insert({ artwork_id: post.id, user_id: state.user.id });
+  const { error } = await operation;
+  if (error) { toast(error.message); return; }
+  post.liked = !liked;
+  post.likes += liked ? -1 : 1;
+  await supabaseClient.from("artworks").update({ likes: post.likes }).eq("id", post.id);
+  renderApp();
+}
+async function reportArtwork(post) {
+  const reason = window.prompt("Why are you reporting this artwork?", "Inappropriate or unsafe content");
+  if (!reason || !supabaseClient || !state.user?.id) return;
+  const { error } = await supabaseClient.from("artwork_reports").insert({ artwork_id: post.id, reporter_id: state.user.id, reason });
+  if (error) toast(error.message);
+  else toast("Thank you. This artwork has been sent for review.");
+}
 async function restoreSupabaseSession() {
   if (!supabaseClient) return;
   const { data, error } = await supabaseClient.auth.getSession();
@@ -69,6 +122,7 @@ async function restoreSupabaseSession() {
   if (data.session) {
     const metadata = data.session.user.user_metadata || {};
     state.user = {
+      id: data.session.user.id,
       name: metadata.name || data.session.user.email || "Paul Sketches member",
       email: data.session.user.email || "",
       role: metadata.role || "viewer",
@@ -76,6 +130,8 @@ async function restoreSupabaseSession() {
       notifications: 0
     };
     save();
+    await loadSocialState();
+    await loadSharedArtworks();
     renderApp();
   }
 }
@@ -92,7 +148,9 @@ async function loadSharedArtworks() {
   if (!supabaseClient) return;
   const { data, error } = await supabaseClient.from("artworks").select("*").order("created_at", { ascending: false });
   if (error) { console.warn("Supabase artwork feed unavailable:", error.message); return; }
-  state.posts = data.map(post => ({ ...post, date: new Date(post.created_at).toLocaleDateString(), liked: false }));
+  const { data: likes } = await supabaseClient.from("artwork_likes").select("artwork_id").eq("user_id", state.user?.id || "");
+  const likedIds = new Set((likes || []).map(row => row.artwork_id));
+  state.posts = data.map(post => ({ ...post, date: new Date(post.created_at).toLocaleDateString(), liked: likedIds.has(post.id) }));
   save();
   if (state.user) renderApp();
 }
@@ -103,6 +161,17 @@ function subscribeToArtworks() {
       state.posts.unshift({ ...payload.new, date: "Just now", liked: false });
       save();
       if (state.user) { renderApp(); toast(`${payload.new.artist} uploaded new artwork to NTLONG.`); }
+    }
+    function subscribeToSocialActivity() {
+      if (!supabaseClient) return;
+      supabaseClient.channel("social-activity")
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, payload => {
+          if (state.user?.id && (payload.new.sender_id === state.user.id || payload.new.recipient_id === state.user.id)) {
+            state.chats.push({ artist: payload.new.sender_name === state.user.name ? payload.new.recipient_name : payload.new.sender_name, from: payload.new.sender_name, text: payload.new.text, time: new Date(payload.new.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
+            if (state.view === "chat") renderApp();
+            else toast("You have a new Chatbox message.");
+          }
+        }).subscribe();
     }
   }).subscribe();
 }
@@ -153,9 +222,10 @@ async function verifyEmailCode(event) {
   const { data, error } = await supabaseClient.auth.verifyOtp({ email: state.otpEmail, token: code, type: "email" });
   if (error || !data.session) { toast(error ? error.message : "That code could not be verified."); return; }
   const name = data.session.user.user_metadata?.name || state.otpEmail.split("@")[0];
-  state.user = { name, email: state.otpEmail, dob: state.otpDob, role: state.role, initials: initials(name), notifications: 0 };
+  state.user = { id: data.session.user.id, name, email: state.otpEmail, dob: state.otpDob, role: state.role, initials: initials(name), notifications: 0 };
   state.otpEmail = null;
   save();
+  await loadSocialState();
   if (state.role === "artist") announceNewArtist(state.user);
   renderApp();
   toast(`Welcome to Paul Sketches, ${name}!`);
@@ -182,7 +252,7 @@ function homeView() {
 }
 
 function postCard(post) {
-  return `<article class="post-card"><div class="post-head"><div class="person"><div class="avatar">${post.initials}</div><div><div class="person-name">${post.artist} ${tag(post.tag)}</div><span class="post-date">${post.date}</span></div></div><button class="more">•••</button></div><div class="artwork"><img src="${post.image}" alt="${post.title} by ${post.artist}" /><span class="art-label">Fan valuation · M ${post.price.toLocaleString()}</span></div><div class="post-body"><h3>${post.title}</h3><p>${post.description}</p><div class="post-actions"><button class="action-btn like-btn ${post.liked ? "liked" : ""}" data-id="${post.id}"><span>${post.liked ? "♥" : "♡"}</span>${post.likes} likes</button><button class="action-btn contact-btn" data-artist="${post.artist}"><span>✉</span> Contact artist</button><button class="action-btn value-btn" data-id="${post.id}"><span>◈</span> Value piece</button><button class="action-btn share-piece-btn" data-id="${post.id}"><span>↗</span> Share</button></div></div></article>`;
+  return `<article class="post-card"><div class="post-head"><div class="person"><div class="avatar">${post.initials}</div><div><div class="person-name">${post.artist} ${tag(post.tag)}</div><span class="post-date">${post.date}</span></div></div><div class="post-head-actions"><button class="follow-btn" data-artist-id="${post.artist_id || ""}" data-artist-name="${post.artist}">${followedArtists.has(post.artist_id) ? "Following" : "Follow"}</button><button class="more">•••</button></div></div><div class="artwork"><img src="${post.image}" alt="${post.title} by ${post.artist}" /><span class="art-label">Fan valuation · M ${post.price.toLocaleString()}</span></div><div class="post-body"><h3>${post.title}</h3><p>${post.description}</p><div class="post-actions"><button class="action-btn like-btn ${post.liked ? "liked" : ""}" data-id="${post.id}"><span>${post.liked ? "♥" : "♡"}</span>${post.likes} likes</button><button class="action-btn contact-btn" data-artist="${post.artist}" data-artist-id="${post.artist_id || ""}"><span>✉</span> Contact artist</button><button class="action-btn value-btn" data-id="${post.id}"><span>◈</span> Value piece</button><button class="action-btn share-piece-btn" data-id="${post.id}"><span>↗</span> Share</button><button class="action-btn report-btn" data-id="${post.id}"><span>⚑</span> Report</button></div></div></article>`;
 }
 
 function newsView() {
@@ -205,12 +275,14 @@ function bindView() {
   document.querySelectorAll("[data-view]").forEach(button => button.onclick = () => { state.view = button.dataset.view; renderApp(); });
   const amount = document.querySelector("#amount"), currency = document.querySelector("#currency"), result = document.querySelector("#conversion-result");
   if (amount) { const update = () => { const value = Number(amount.value) || 0; result.textContent = currency.value === "lsl" ? `≈ £${(value / 23.5).toFixed(2)}` : `≈ M ${(value * 23.5).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }; amount.oninput = update; currency.onchange = update; }
-  document.querySelectorAll(".like-btn").forEach(button => button.onclick = () => { const post = state.posts.find(item => item.id === Number(button.dataset.id)); post.liked = !post.liked; post.likes += post.liked ? 1 : -1; if (post.liked) { state.user.notifications = (state.user.notifications || 0) + 1; toast("Added to your likes — the artist will see your support."); } save(); renderApp(); });
-  document.querySelectorAll(".contact-btn").forEach(button => button.onclick = () => openChat(button.dataset.artist));
+  document.querySelectorAll(".like-btn").forEach(button => button.onclick = () => likeArtwork(state.posts.find(item => item.id === Number(button.dataset.id))));
+  document.querySelectorAll(".follow-btn").forEach(button => button.onclick = () => toggleFollow(button.dataset.artistId, button.dataset.artistName));
+  document.querySelectorAll(".report-btn").forEach(button => button.onclick = () => reportArtwork(state.posts.find(item => item.id === Number(button.dataset.id))));
+  document.querySelectorAll(".contact-btn").forEach(button => button.onclick = () => openChat(button.dataset.artist, button.dataset.artistId));
   document.querySelectorAll(".share-piece-btn").forEach(button => button.onclick = () => { const post = state.posts.find(item => item.id === Number(button.dataset.id)); shareLink("piece", post.id); });
   document.querySelectorAll(".chat-contact").forEach(button => button.onclick = () => openChat(button.dataset.chatArtist));
   const chatForm = document.querySelector("#chat-form");
-  if (chatForm) chatForm.onsubmit = event => { event.preventDefault(); const text = new FormData(chatForm).get("message").trim(); if (!text) return; state.chats.push({ artist: state.chatArtist, from: state.user.name, text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }); save(); renderApp(); };
+  if (chatForm) chatForm.onsubmit = async event => { event.preventDefault(); const text = new FormData(chatForm).get("message").trim(); if (!text) return; if (supabaseClient && state.user?.id && state.chatArtistId) { const { error } = await supabaseClient.from("chat_messages").insert({ sender_id: state.user.id, recipient_id: state.chatArtistId, recipient_name: state.chatArtist, sender_name: state.user.name, text }); if (error) { toast(error.message); return; } } else { state.chats.push({ artist: state.chatArtist, from: state.user.name, text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }); save(); } renderApp(); };
   const shareAccount = document.querySelector("#share-account"); if (shareAccount) shareAccount.onclick = () => shareLink("account", state.user.name);
   const accountChat = document.querySelector("#open-account-chat"); if (accountChat) accountChat.onclick = () => { state.view = "chat"; renderApp(); };
   document.querySelectorAll(".value-btn").forEach(button => button.onclick = () => { const post = state.posts.find(item => item.id === Number(button.dataset.id)); const value = prompt("What do you think this piece is worth in Maloti?", post.price); if (value && Number(value) > 0) { post.price = Number(value); save(); renderApp(); toast("Your fan valuation has been added."); } });
@@ -219,7 +291,7 @@ function bindView() {
 }
 
 function openUpload() {
-  const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-head"><div><div class="eyebrow">Artist studio</div><h2>Share a new piece</h2></div><button class="close">×</button></div><form id="upload-form"><div class="form-grid"><div class="field full"><label for="piece-title">Title</label><input id="piece-title" name="title" required placeholder="Name your work" /></div><div class="field full"><label for="piece-file">Artwork image</label><input id="piece-file" name="file" type="file" accept="image/*" required /></div><div class="field"><label for="piece-price">Starting valuation (M)</label><input id="piece-price" name="price" type="number" min="1" required placeholder="1200" /></div><div class="field"><label for="piece-medium">Medium</label><input id="piece-medium" name="medium" required placeholder="Oil on canvas" /></div><div class="field full"><label for="piece-description">Description</label><textarea id="piece-description" name="description" required placeholder="Tell the community about this piece..."></textarea></div></div><button class="primary-btn" style="margin-top:18px;width:100%" type="submit">Publish artwork</button></form></div>`; document.body.append(modal); modal.querySelector(".close").onclick = () => modal.remove(); modal.onclick = event => { if (event.target === modal) modal.remove(); };   modal.querySelector("#upload-form").onsubmit = async event => { event.preventDefault(); const form = event.target; const data = Object.fromEntries(new FormData(form)); const file = form.querySelector("#piece-file").files[0]; if (!supabaseClient) { toast("The shared artwork service is not available."); return; } const path = `${Date.now()}-${file.name.replace(/[^a-z0-9.-]/gi, "-")}`; const { error: uploadError } = await supabaseClient.storage.from("artworks").upload(path, file, { contentType: file.type, upsert: false }); if (uploadError) { toast(`Image upload failed: ${uploadError.message}`); return; } const { data: imageData } = supabaseClient.storage.from("artworks").getPublicUrl(path); const { error: insertError } = await supabaseClient.from("artworks").insert({ artist: state.user.name, initials: state.user.initials, title: data.title, description: `${data.description} · ${data.medium}`, image: imageData.publicUrl, likes: 0, price: Number(data.price) }); if (insertError) { toast(`Artwork could not be published: ${insertError.message}`); return; } modal.remove(); toast("Artwork published to NTLONG for everyone."); }; }
+  const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-head"><div><div class="eyebrow">Artist studio</div><h2>Share a new piece</h2></div><button class="close">×</button></div><form id="upload-form"><div class="form-grid"><div class="field full"><label for="piece-title">Title</label><input id="piece-title" name="title" required placeholder="Name your work" /></div><div class="field full"><label for="piece-file">Artwork image</label><input id="piece-file" name="file" type="file" accept="image/*" required /></div><div class="field"><label for="piece-price">Starting valuation (M)</label><input id="piece-price" name="price" type="number" min="1" required placeholder="1200" /></div><div class="field"><label for="piece-medium">Medium</label><input id="piece-medium" name="medium" required placeholder="Oil on canvas" /></div><div class="field full"><label for="piece-description">Description</label><textarea id="piece-description" name="description" required placeholder="Tell the community about this piece..."></textarea></div></div><button class="primary-btn" style="margin-top:18px;width:100%" type="submit">Publish artwork</button></form></div>`; document.body.append(modal); modal.querySelector(".close").onclick = () => modal.remove(); modal.onclick = event => { if (event.target === modal) modal.remove(); };   modal.querySelector("#upload-form").onsubmit = async event => { event.preventDefault(); const form = event.target; const data = Object.fromEntries(new FormData(form)); const file = form.querySelector("#piece-file").files[0]; if (!supabaseClient) { toast("The shared artwork service is not available."); return; }   const path = `${Date.now()}-${file.name.replace(/[^a-z0-9.-]/gi, "-")}`; const { error: uploadError } = await supabaseClient.storage.from("artworks").upload(path, file, { contentType: file.type, upsert: false }); if (uploadError) { toast(`Image upload failed: ${uploadError.message}`); return; } const { data: imageData } = supabaseClient.storage.from("artworks").getPublicUrl(path); const { error: insertError } = await supabaseClient.from("artworks").insert({ artist_id: state.user.id, artist: state.user.name, initials: state.user.initials, title: data.title, description: `${data.description} · ${data.medium}`, image: imageData.publicUrl, likes: 0, price: Number(data.price) }); if (insertError) { toast(`Artwork could not be published: ${insertError.message}`); return; } modal.remove(); toast("Artwork published to NTLONG for everyone."); }; }
 
 window.addEventListener("storage", event => {
   if (event.key === "paulArtistAnnouncement" && state.user && state.user.role !== "artist") {
@@ -233,6 +305,7 @@ window.addEventListener("storage", event => {
   }
 });
 subscribeToArtworks();
+subscribeToSocialActivity();
 loadSharedArtworks();
 if (supabaseClient) {
   renderAuth();

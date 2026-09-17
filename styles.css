@@ -96,6 +96,9 @@ button { cursor: pointer; border: 0; }
 .admin-link:hover { text-decoration: underline; }
 .post-card, .side-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
 .post-head { display: flex; justify-content: space-between; align-items: center; padding: 17px 18px; }
+.post-head-actions { display: flex; gap: 8px; align-items: center; }
+.follow-btn { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--coral-dark); background: #fff8f5; font-size: .7rem; font-weight: 700; }
+.follow-btn:hover { background: #f9e5df; }
 .person { display: flex; gap: 10px; align-items: center; }
 .person .avatar { width: 34px; height: 34px; font-size: .8rem; }
 .person-name { font-weight: 700; font-size: .86rem; }
