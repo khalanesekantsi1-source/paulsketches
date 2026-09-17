@@ -8,9 +8,22 @@ service cloud.firestore {
     }
     match /posts/{postId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.imageURL is string &&
+        request.resource.data.imageURL.size() > 0 &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'artist';
       allow update: if request.auth != null &&
         (resource.data.uid == request.auth.uid || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likesCount']));
+    }
+    match /posts/{postId}/valuations/{uid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null &&
+        request.auth.uid == uid &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.amountM is number &&
+        request.resource.data.amountM >= 0;
+      allow delete: if request.auth != null && request.auth.uid == uid;
     }
   }
 }
