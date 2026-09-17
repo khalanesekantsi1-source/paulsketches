@@ -11,6 +11,13 @@ const app = initializeApp({
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 });
+export const isFirebaseConfigured = Object.values(import.meta.env).every(Boolean) &&
+  Boolean(import.meta.env.VITE_FIREBASE_API_KEY &&
+    import.meta.env.VITE_FIREBASE_AUTH_DOMAIN &&
+    import.meta.env.VITE_FIREBASE_PROJECT_ID &&
+    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET &&
+    import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID &&
+    import.meta.env.VITE_FIREBASE_APP_ID);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
