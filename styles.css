@@ -67,6 +67,8 @@ button { cursor: pointer; border: 0; }
 .nav button:hover, .nav button.active { background: #eee6dc; color: var(--ink); }
 .nav button.active { color: var(--coral-dark); }
 .nav-icon { display: inline-block; width: 25px; font-size: 1rem; }
+.chat-nav-icon { position: relative; width: 17px; height: 13px; margin: 0 4px; border: 2px solid currentColor; border-radius: 5px; vertical-align: -1px; }
+.chat-nav-icon::after { content: ""; position: absolute; left: 2px; bottom: -5px; width: 5px; height: 5px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; background: inherit; transform: skewY(-25deg); }
 .sidebar-bottom { margin-top: auto; padding: 13px 12px; border-top: 1px solid var(--line); }
 .sidebar-bottom small { display: block; color: var(--muted); margin-bottom: 9px; }
 .logout { color: var(--coral-dark); background: none; font-weight: 700; padding: 0; }
