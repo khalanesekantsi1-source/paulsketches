@@ -11,6 +11,21 @@ function initials(name) { return name.split(" ").map(word => word[0]).slice(0, 2
 function save() { localStorage.setItem("paulUser", JSON.stringify(state.user)); localStorage.setItem("paulPosts", JSON.stringify(state.posts)); localStorage.setItem("paulChats", JSON.stringify(state.chats)); }
 function toast(message) { const item = document.createElement("div"); item.className = "toast"; item.textContent = message; toastRegion.append(item); setTimeout(() => item.remove(), 3200); }
 function tag(role) { return `<span class="tag">${role}</span>`; }
+function announceNewArtist(artist) {
+  const announcement = { name: artist.name, initials: artist.initials, district: artist.location || "", at: Date.now() };
+  localStorage.setItem("paulArtistAnnouncement", JSON.stringify(announcement));
+}
+function notifyAboutNewArtist() {
+  const announcement = JSON.parse(localStorage.getItem("paulArtistAnnouncement") || "null");
+  if (!announcement || !state.user || state.user.role === "artist") return;
+  const lastSeen = Number(state.user.lastArtistAnnouncement || 0);
+  if (announcement.at > lastSeen) {
+    state.user.lastArtistAnnouncement = announcement.at;
+    state.user.notifications = (state.user.notifications || 0) + 1;
+    save();
+    toast(`${announcement.name} just joined as an artist. Check them out!`);
+  }
+}
 function communityStats() {
   return {
     artworks: state.posts.length,
@@ -55,11 +70,12 @@ function handleAuth(event) {
   const data = Object.fromEntries(new FormData(event.target));
   if (state.role === "artist") { const age = new Date().getFullYear() - new Date(data.dob).getFullYear(); if (age < 15) { toast("Artists must be 15 years or older."); return; } }
   state.user = { ...data, role: state.role, initials: initials(data.name), notifications: 0 };
-  save(); renderApp(); toast(`Welcome to Paul Sketches, ${data.name.split(" ")[0]}!`);
+  save(); if (state.role === "artist") announceNewArtist(state.user); renderApp(); toast(`Welcome to Paul Sketches, ${data.name.split(" ")[0]}!`);
 }
 
 function renderApp() {
   const user = state.user;
+  notifyAboutNewArtist();
   const heading = state.view === "home" ? "Good morning, " + user.name.split(" ")[0] + "." : state.view === "news" ? "The newsroom." : state.view === "chat" ? "Chatbox." : "Your profile.";
   const subheading = state.view === "home" ? "See what the community is creating today." : state.view === "news" ? "Stories, opportunities and updates from the art world." : state.view === "chat" ? "Talk directly with artists and viewers." : "Your creative space in the network.";
   app.innerHTML = `<div class="app-shell"><aside class="sidebar"><div class="brand"><span class="brand-mark">P</span><span class="brand-name">PAUL<br>SKETCHES</span></div><nav class="nav"><button class="${state.view === "home" ? "active" : ""}" data-view="home"><span class="nav-icon">⌂</span><span class="nav-label">Discover</span></button><button class="${state.view === "news" ? "active" : ""}" data-view="news"><span class="nav-icon">◫</span><span class="nav-label">Newsroom</span></button><button class="${state.view === "chat" ? "active" : ""}" data-view="chat"><span class="nav-icon">✉</span><span class="nav-label">Chatbox</span></button><button class="${state.view === "profile" ? "active" : ""}" data-view="profile"><span class="nav-icon">◎</span><span class="nav-label">My profile</span></button></nav><div class="sidebar-bottom"><button class="install-btn hidden" data-install>⇩ Install app</button><small>Signed in as <strong>${user.name.split(" ")[0]}</strong></small><button class="logout" id="logout">Log out</button></div></aside><main class="main"><header class="topbar"><div><h1 class="serif">${heading}</h1><p>${subheading}</p></div><div class="top-actions"><button class="icon-btn" id="share-app" aria-label="Share Paul Sketches">↗</button><button class="icon-btn install-top hidden" data-install aria-label="Install app">⇩</button><button class="icon-btn" id="notifications" aria-label="Notifications">♧<span class="badge">${user.notifications || 0}</span></button><div class="avatar">${user.initials}</div></div></header>${state.view === "home" ? homeView() : state.view === "news" ? newsView() : state.view === "chat" ? chatView() : profileView()}</main></div>`;
@@ -116,4 +132,15 @@ function bindView() {
 function openUpload() {
   const modal = document.createElement("div"); modal.className = "modal-backdrop"; modal.innerHTML = `<div class="modal"><div class="modal-head"><div><div class="eyebrow">Artist studio</div><h2>Share a new piece</h2></div><button class="close">×</button></div><form id="upload-form"><div class="form-grid"><div class="field full"><label for="piece-title">Title</label><input id="piece-title" name="title" required placeholder="Name your work" /></div><div class="field full"><label for="piece-file">Artwork image</label><input id="piece-file" name="file" type="file" accept="image/*" required /></div><div class="field"><label for="piece-price">Starting valuation (M)</label><input id="piece-price" name="price" type="number" min="1" required placeholder="1200" /></div><div class="field"><label for="piece-medium">Medium</label><input id="piece-medium" name="medium" required placeholder="Oil on canvas" /></div><div class="field full"><label for="piece-description">Description</label><textarea id="piece-description" name="description" required placeholder="Tell the community about this piece..."></textarea></div></div><button class="primary-btn" style="margin-top:18px;width:100%" type="submit">Publish artwork</button></form></div>`; document.body.append(modal); modal.querySelector(".close").onclick = () => modal.remove(); modal.onclick = event => { if (event.target === modal) modal.remove(); }; modal.querySelector("#upload-form").onsubmit = event => { event.preventDefault(); const form = event.target; const data = Object.fromEntries(new FormData(form)); const file = form.querySelector("#piece-file").files[0]; const publish = image => { state.posts.unshift({ id: Date.now(), artist: state.user.name, initials: state.user.initials, tag: "Artist", date: "Just now", title: data.title, description: `${data.description} · ${data.medium}`, image, likes: 0, liked: false, price: Number(data.price) }); save(); modal.remove(); renderApp(); toast("Artwork published successfully — your community has been notified."); }; const reader = new FileReader(); reader.onload = () => publish(reader.result); reader.onerror = () => toast("The image could not be read. Please choose another file."); reader.readAsDataURL(file); }; }
 
+window.addEventListener("storage", event => {
+  if (event.key === "paulArtistAnnouncement" && state.user && state.user.role !== "artist") {
+    const announcement = JSON.parse(event.newValue || "null");
+    if (announcement) {
+      state.user.lastArtistAnnouncement = announcement.at;
+      state.user.notifications = (state.user.notifications || 0) + 1;
+      save();
+      toast(`${announcement.name} just joined as an artist. Check them out!`);
+    }
+  }
+});
 if (state.user) renderApp(); else renderAuth();
