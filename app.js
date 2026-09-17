@@ -53,6 +53,32 @@ function installApp() {
 window.addEventListener("beforeinstallprompt", event => { event.preventDefault(); deferredInstallPrompt = event; document.querySelectorAll("[data-install]").forEach(button => button.classList.remove("hidden")); });
 window.addEventListener("appinstalled", () => { deferredInstallPrompt = null; document.querySelectorAll("[data-install]").forEach(button => button.classList.add("hidden")); toast("Paul Sketches has been installed."); });
 function openChat(artist) { state.chatArtist = artist; state.view = "chat"; renderApp(); }
+async function restoreSupabaseSession() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    console.warn("Could not restore Supabase session:", error.message);
+    return;
+  }
+  if (!data.session) {
+    state.user = null;
+    localStorage.removeItem("paulUser");
+    renderAuth();
+    return;
+  }
+  if (data.session) {
+    const metadata = data.session.user.user_metadata || {};
+    state.user = {
+      name: metadata.name || data.session.user.email || "Paul Sketches member",
+      email: data.session.user.email || "",
+      role: metadata.role || "viewer",
+      initials: initials(metadata.name || data.session.user.email || "PS"),
+      notifications: 0
+    };
+    save();
+    renderApp();
+  }
+}
 async function logoutUser() {
   if (supabaseClient) await supabaseClient.auth.signOut();
   state.user = null;
@@ -92,13 +118,20 @@ function renderAuth() {
 }
 
 function authForm() {
-  return `<form id="login-form"><div class="form-grid"><div class="field"><label for="name">Full name</label><input id="name" name="name" required placeholder="e.g. 'Mpho Mokoena'" /></div><div class="field"><label for="dob">Date of birth</label><input id="dob" name="dob" type="date" required /></div><div class="field"><label for="gender">Gender</label><select id="gender" name="gender" required><option value="">Select one</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select></div>${state.role === "artist" ? '<div class="field"><label for="location">District</label><select id="location" name="location" required><option value="">Select district</option><option>Maseru</option><option>Leribe</option><option>Berea</option><option>Mafeteng</option><option>Mohale’s Hoek</option><option>Qacha’s Nek</option><option>Quthing</option><option>Mokhotlong</option><option>Thaba-Tseka</option><option>Butha-Buthe</option></select></div><div class="field full"><label for="statement">Artist statement</label><textarea id="statement" name="statement" required placeholder="What is the story behind your practice?"></textarea></div><div class="field full"><label for="bio">Short bio</label><textarea id="bio" name="bio" required placeholder="Tell the community about yourself..."></textarea></div>' : ""}</div><p class="hint">${state.role === "artist" ? "Artist access is available to people aged 15 and above." : "Your viewer profile lets you follow artists, value pieces and send messages."}</p><button class="primary-btn" type="submit">Enter Paul Sketches →</button></form>`;
+  return `<form id="login-form"><div class="form-grid"><div class="field"><label for="name">Full name</label><input id="name" name="name" required placeholder="e.g. 'Mpho Mokoena'" /></div><div class="field"><label for="email">Email <span style="color:var(--muted);font-weight:400">(for secure sign-in)</span></label><input id="email" name="email" type="email" required placeholder="you@example.com" /></div><div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required minlength="6" placeholder="At least 6 characters" /></div><div class="field"><label for="dob">Date of birth</label><input id="dob" name="dob" type="date" required /></div><div class="field"><label for="gender">Gender</label><select id="gender" name="gender" required><option value="">Select one</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Prefer not to say</option></select></div>${state.role === "artist" ? '<div class="field"><label for="location">District</label><select id="location" name="location" required><option value="">Select district</option><option>Maseru</option><option>Leribe</option><option>Berea</option><option>Mafeteng</option><option>Mohale’s Hoek</option><option>Qacha’s Nek</option><option>Quthing</option><option>Mokhotlong</option><option>Thaba-Tseka</option><option>Butha-Buthe</option></select></div><div class="field full"><label for="statement">Artist statement</label><textarea id="statement" name="statement" required placeholder="What is the story behind your practice?"></textarea></div><div class="field full"><label for="bio">Short bio</label><textarea id="bio" name="bio" required placeholder="Tell the community about yourself..."></textarea></div>' : ""}</div><p class="hint">${state.role === "artist" ? "Artist access is available to people aged 15 and above." : "Your viewer profile lets you follow artists, value pieces and send messages."} Your session will be restored automatically next time.</p><button class="primary-btn" type="submit">Enter Paul Sketches →</button></form>`;
 }
 
 function handleAuth(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.target));
   if (state.role === "artist") { const age = new Date().getFullYear() - new Date(data.dob).getFullYear(); if (age < 15) { toast("Artists must be 15 years or older."); return; } }
+  if (supabaseClient) {
+    const { data: authData, error } = await supabaseClient.auth.signInWithPassword({ email: data.email, password: data.password });
+    if (error || !authData.session) {
+      toast(error ? error.message : "Secure sign-in failed.");
+      return;
+    }
+  }
   state.user = { ...data, role: state.role, initials: initials(data.name), notifications: 0 };
   save(); if (state.role === "artist") announceNewArtist(state.user); renderApp(); toast(`Welcome to Paul Sketches, ${data.name.split(" ")[0]}!`);
 }
@@ -176,4 +209,8 @@ window.addEventListener("storage", event => {
 });
 subscribeToArtworks();
 loadSharedArtworks();
-if (state.user) renderApp(); else renderAuth();
+if (supabaseClient) {
+  renderAuth();
+  restoreSupabaseSession();
+} else if (state.user) renderApp();
+else renderAuth();
