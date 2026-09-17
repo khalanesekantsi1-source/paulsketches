@@ -77,6 +77,8 @@ button { cursor: pointer; border: 0; }
 .topbar h1 { font-size: 2rem; letter-spacing: -.05em; margin: 0; }
 .topbar p { color: var(--muted); margin: 5px 0 0; font-size: .88rem; }
 .top-actions { display: flex; gap: 10px; align-items: center; }
+.header-logout { padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--coral-dark); background: var(--card); font-size: .76rem; font-weight: 700; }
+.header-logout:hover { background: #f9e5df; }
 .icon-btn { position: relative; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 50%; background: var(--card); }
 .badge { position: absolute; top: -3px; right: -1px; width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--coral); font-size: .58rem; }
 .avatar { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--sage); font-weight: 700; }
