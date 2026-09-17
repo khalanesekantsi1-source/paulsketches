@@ -23,7 +23,7 @@ function Auth() {
 }
 
 function Navbar({ user }: { user: User }) {
-  return <header className="sticky top-0 z-10 border-b bg-white"><div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4"><Link to="/" className="text-2xl font-extrabold text-facebook">MiniFeed</Link><input className="hidden max-w-sm flex-1 rounded-full bg-slate-100 px-5 py-2 outline-none focus:ring-2 focus:ring-blue-200 md:block" placeholder="Search MiniFeed" /> <div className="ml-auto flex items-center gap-3"><Link to={`/profile/${user.uid}`}><Avatar src={user.photoURL || undefined} name={user.displayName || user.email || "User"} /></Link><button onClick={() => signOut(auth)} className="text-sm font-semibold text-slate-500 hover:text-facebook">Log out</button></div></div></header>;
+  return <header className="sticky top-0 z-10 border-b bg-white"><div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4"><Link to="/" className="text-2xl font-extrabold text-facebook">MiniFeed</Link><nav className="hidden items-center gap-4 text-sm font-semibold md:flex"><Link className="text-slate-600 hover:text-facebook" to="/">Feed</Link><Link className="text-slate-600 hover:text-facebook" to="/popular">Popular artists</Link></nav><input className="hidden max-w-sm flex-1 rounded-full bg-slate-100 px-5 py-2 outline-none focus:ring-2 focus:ring-blue-200 md:block" placeholder="Search MiniFeed" /> <div className="ml-auto flex items-center gap-3"><Link to={`/profile/${user.uid}`}><Avatar src={user.photoURL || undefined} name={user.displayName || user.email || "User"} /></Link><button onClick={() => signOut(auth)} className="text-sm font-semibold text-slate-500 hover:text-facebook">Log out</button></div></div></header>;
 }
 
 function CreatePost({ profile }: { profile: Profile }) {
@@ -51,6 +51,27 @@ function Feed({ user }: { user: User }) {
   return <><Navbar user={user} /><main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[220px_minmax(0,640px)_220px]"><Sidebars profile={profile} /><section><div className="mb-5"><h1 className="text-2xl font-bold text-slate-900">Good day, {profile.displayName}.</h1><p className="mt-1 text-sm text-slate-500">See what your community is sharing.</p></div><CreatePost profile={profile} /><div className="space-y-5">{posts.map(post => <PostCard key={post.id} post={post} uid={user.uid} />)}</div></section><Sidebars profile={profile} right /></main></>;
 }
 
+function PopularArtists({ user }: { user: User }) {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  useEffect(() => onSnapshot(query(collection(db, "posts"), orderBy("createdAt", "desc")), snap => setPosts(snap.docs.map(d => d.data() as Post))), []);
+  useEffect(() => onSnapshot(collection(db, "users"), snap => {
+    const next: Record<string, Profile> = {};
+    snap.docs.forEach(item => { next[item.id] = item.data() as Profile; });
+    setProfiles(next);
+  }), []);
+  const rankings = [...posts.reduce((map, post) => {
+    const current = map.get(post.uid) || { uid: post.uid, displayName: post.displayName, photoURL: post.photoURL, likes: 0, posts: 0, connections: new Set<string>() };
+    current.likes += post.likesCount || 0;
+    current.posts += 1;
+    (post.likes || []).forEach(liker => current.connections.add(liker));
+    map.set(post.uid, current);
+    return map;
+  }, new Map<string, { uid: string; displayName: string; photoURL: string; likes: number; posts: number; connections: Set<string> }>().values())]
+    .sort((a, b) => b.likes - a.likes || b.connections.size - a.connections.size || b.posts - a.posts);
+  return <><Navbar user={user} /><main className="mx-auto max-w-4xl px-4 py-8"><div className="mb-6"><p className="text-sm font-bold uppercase tracking-wide text-facebook">Community discovery</p><h1 className="mt-1 text-3xl font-bold text-slate-900">Popular artists</h1><p className="mt-2 text-slate-500">Artists ranked by real likes, unique people engaging with their work, and posts shared.</p></div>{rankings.length ? <div className="space-y-4">{rankings.map((artist, index) => { const profile = profiles[artist.uid]; return <article className="card flex items-center gap-4" key={artist.uid}><div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 font-bold text-facebook">#{index + 1}</div><Avatar src={profile?.photoURL || artist.photoURL} name={profile?.displayName || artist.displayName} size="h-14 w-14" /><div className="min-w-0 flex-1"><Link className="text-lg font-bold hover:text-facebook" to={`/profile/${artist.uid}`}>{profile?.displayName || artist.displayName}</Link><p className="mt-1 text-sm text-slate-500">{artist.likes} {artist.likes === 1 ? "like" : "likes"} · {artist.connections.size} {artist.connections.size === 1 ? "person" : "people"} connecting · {artist.posts} {artist.posts === 1 ? "post" : "posts"}</p></div><Link className="rounded-lg border border-blue-100 px-3 py-2 text-sm font-semibold text-facebook hover:bg-blue-50" to={`/profile/${artist.uid}`}>View profile</Link></article>; })}</div> : <div className="card py-16 text-center"><h2 className="text-xl font-bold">No popular artists yet</h2><p className="mt-2 text-slate-500">Once artists share posts and viewers interact, rankings will appear here.</p></div>}</main></>;
+}
+
 function ProfilePage({ user }: { user: User }) {
   const { uid } = useParams(); const [profile, setProfile] = useState<Profile>(); const [bio, setBio] = useState(""); const [editing, setEditing] = useState(false);
   useEffect(() => uid ? onSnapshot(doc(db, "users", uid), s => { const p = s.data() as Profile; setProfile(p); setBio(p?.bio || ""); }) : undefined, [uid]);
@@ -64,6 +85,6 @@ function App() {
   useEffect(() => onAuthStateChanged(auth, setUser), []);
   if (user === undefined) return <div className="grid min-h-screen place-items-center">Loading…</div>;
   if (!user) return <Auth />;
-  return <Routes><Route path="/profile/:uid" element={<ProfilePage user={user} />} /><Route path="*" element={<Feed user={user} />} /></Routes>;
+  return <Routes><Route path="/profile/:uid" element={<ProfilePage user={user} />} /><Route path="/popular" element={<PopularArtists user={user} />} /><Route path="*" element={<Feed user={user} />} /></Routes>;
 }
 createRoot(document.getElementById("root")!).render(<BrowserRouter><App /></BrowserRouter>);
