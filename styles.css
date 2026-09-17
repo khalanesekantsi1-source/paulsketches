@@ -102,6 +102,12 @@ button { cursor: pointer; border: 0; }
 .post-card, .side-card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
 .post-head { display: flex; justify-content: space-between; align-items: center; padding: 17px 18px; }
 .post-head-actions { display: flex; gap: 8px; align-items: center; }
+.community-people { display: grid; gap: 10px; }
+.community-person { display: flex; gap: 9px; align-items: center; }
+.community-person .avatar { width: 30px; height: 30px; font-size: .68rem; flex: 0 0 auto; }
+.community-person strong, .community-person small { display: block; }
+.community-person strong { font-size: .77rem; }
+.community-person small { margin-top: 2px; color: var(--muted); font-size: .67rem; }
 .follow-btn { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--coral-dark); background: #fff8f5; font-size: .7rem; font-weight: 700; }
 .follow-btn:hover { background: #f9e5df; }
 .person { display: flex; gap: 10px; align-items: center; }

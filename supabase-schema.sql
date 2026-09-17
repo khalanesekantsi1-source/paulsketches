@@ -10,6 +10,23 @@ create table if not exists public.artworks (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null,
+  role text not null check (role in ('artist', 'viewer')),
+  district text,
+  bio text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.profiles enable row level security;
+drop policy if exists "Anyone can view profiles" on public.profiles;
+create policy "Anyone can view profiles" on public.profiles for select to authenticated using (true);
+drop policy if exists "Users can create own profile" on public.profiles;
+create policy "Users can create own profile" on public.profiles for insert with check (auth.uid() = id);
+drop policy if exists "Users can update own profile" on public.profiles;
+create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
+
 alter table public.artworks enable row level security;
 drop policy if exists "Anyone can view artworks" on public.artworks;
 create policy "Anyone can view artworks" on public.artworks for select using (true);
@@ -73,7 +90,7 @@ create policy "Users can send chat messages" on public.chat_messages for insert 
 
 do $$
 begin
-  alter publication supabase_realtime add table public.artworks, public.artwork_likes, public.artist_follows, public.chat_messages;
+  alter publication supabase_realtime add table public.artworks, public.artwork_likes, public.artist_follows, public.chat_messages, public.profiles;
 exception when duplicate_object then null;
 end $$;
 

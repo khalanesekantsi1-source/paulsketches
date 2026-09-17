@@ -10,7 +10,7 @@ const savedPosts = JSON.parse(localStorage.getItem("paulPosts") || "[]");
 const oldDemoNames = ["Mpho Mokoena", "Thabo Nthunya", "Lineo Khasu"];
 const realPosts = Array.isArray(savedPosts) ? savedPosts.filter(post => !oldDemoNames.includes(post.artist)) : [];
 localStorage.setItem("paulPosts", JSON.stringify(realPosts));
-let state = { role: null, user: JSON.parse(localStorage.getItem("paulUser") || "null"), posts: realPosts, chats: JSON.parse(localStorage.getItem("paulChats") || "[]"), view: "home", chatArtist: null, chatArtistId: null, otpEmail: null, otpDob: null };
+let state = { role: null, user: JSON.parse(localStorage.getItem("paulUser") || "null"), users: [], posts: realPosts, chats: JSON.parse(localStorage.getItem("paulChats") || "[]"), view: "home", chatArtist: null, chatArtistId: null, otpEmail: null, otpDob: null };
 let followedArtists = new Set();
 
 function initials(name) { return name.split(" ").map(word => word[0]).slice(0, 2).join("").toUpperCase(); }
@@ -77,6 +77,19 @@ async function loadSocialState() {
   const { data: messages } = await supabaseClient.from("chat_messages").select("*").or(`sender_id.eq.${state.user.id},recipient_id.eq.${state.user.id}`).order("created_at");
   state.chats = (messages || []).map(message => ({ artist: message.sender_id === state.user.id ? message.recipient_name : message.sender_name, from: message.sender_name, text: message.text, time: new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }));
   save();
+}
+async function syncAndLoadProfiles() {
+  if (!supabaseClient || !state.user?.id) return;
+  await supabaseClient.from("profiles").upsert({
+    id: state.user.id,
+    display_name: state.user.name,
+    role: state.user.role,
+    district: state.user.location || null,
+    bio: state.user.bio || null,
+    updated_at: new Date().toISOString()
+  });
+  const { data, error } = await supabaseClient.from("profiles").select("id,display_name,role,district,bio,created_at").order("created_at", { ascending: false });
+  if (!error) state.users = data || [];
 }
 async function toggleFollow(artistId, artistName) {
   if (!supabaseClient || !state.user?.id || !artistId) { toast("Sign in with email to follow artists."); return; }
@@ -148,6 +161,8 @@ async function restoreSupabaseSession() {
     save();
     await loadSocialState();
     await loadSharedArtworks();
+    await syncAndLoadProfiles();
+    renderApp();
     renderApp();
   }
 }
@@ -178,18 +193,22 @@ function subscribeToArtworks() {
       save();
       if (state.user) { renderApp(); toast(`${payload.new.artist} uploaded new artwork to NTLONG.`); }
     }
-    function subscribeToSocialActivity() {
-      if (!supabaseClient) return;
-      supabaseClient.channel("social-activity")
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, payload => {
-          if (state.user?.id && (payload.new.sender_id === state.user.id || payload.new.recipient_id === state.user.id)) {
-            state.chats.push({ artist: payload.new.sender_name === state.user.name ? payload.new.recipient_name : payload.new.sender_name, from: payload.new.sender_name, text: payload.new.text, time: new Date(payload.new.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
-            if (state.view === "chat") renderApp();
-            else toast("You have a new Chatbox message.");
-          }
-        }).subscribe();
-    }
   }).subscribe();
+}
+function subscribeToSocialActivity() {
+  if (!supabaseClient) return;
+  supabaseClient.channel("social-activity")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, payload => {
+      if (state.user?.id && (payload.new.sender_id === state.user.id || payload.new.recipient_id === state.user.id)) {
+        state.chats.push({ artist: payload.new.sender_name === state.user.name ? payload.new.recipient_name : payload.new.sender_name, from: payload.new.sender_name, text: payload.new.text, time: new Date(payload.new.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
+        if (state.view === "chat") renderApp();
+        else toast("You have a new Chatbox message.");
+      }
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, async () => {
+      await syncAndLoadProfiles();
+      if (state.user) renderApp();
+    }).subscribe();
 }
 
 function renderAuth() {
@@ -242,6 +261,8 @@ async function verifyEmailCode(event) {
   state.otpEmail = null;
   save();
   await loadSocialState();
+  await syncAndLoadProfiles();
+  renderApp();
   if (state.role === "artist") announceNewArtist(state.user);
   renderApp();
   toast(`Welcome to Paul Sketches, ${name}!`);
@@ -264,7 +285,8 @@ function renderApp() {
 
 function homeView() {
   const feed = state.posts.length ? state.posts.map(postCard).join("") : `<div class="empty-state"><div class="empty-icon">✦</div><h3>No artwork has been uploaded yet</h3><p>The community feed will show real artwork here after an artist publishes their first piece.</p>${state.user.role === "artist" ? '<button id="open-upload" class="primary-btn">Upload the first artwork</button>' : ""}</div>`;
-  return `<div class="dashboard-grid"><section><div class="section-head"><h2>NTLONG · Discover art</h2><span>${state.posts.length} uploaded ${state.posts.length === 1 ? "work" : "works"}</span></div><div class="feed">${feed}</div></section><aside class="side-col"><div class="side-card"><h3>About NTLONG</h3><p style="color:var(--muted);font-size:.8rem;line-height:1.5">A home for discovering every real artwork shared by artists on Paul Sketches.</p><button class="text-btn" data-view="news">Open newsroom →</button></div><div class="side-card"><h3>Quick converter</h3><p style="color:var(--muted);font-size:.78rem;margin-top:-8px">Guide rate: 1 GBP ≈ 23.50 LSL</p><div class="converter-row"><input id="amount" type="number" value="100" min="0"><select id="currency"><option value="lsl">Maloti → GBP</option><option value="gbp">GBP → Maloti</option></select></div><div id="conversion-result" class="conversion-result">≈ £4.26</div></div>${state.user.role === "artist" ? '<div class="side-card"><h3>Share your work</h3><p style="color:var(--muted);font-size:.8rem;line-height:1.5">Have something new for the community?</p><button id="open-upload" class="primary-btn upload-btn">＋ Upload artwork</button></div>' : ""}</aside></div>`;
+  const people = state.users.length ? state.users.map(person => `<div class="community-person"><span class="avatar">${initials(person.display_name)}</span><span><strong>${person.display_name}</strong><small>${person.role === "artist" ? "Artist" : "Viewer"}${person.district ? ` · ${person.district}` : ""}</small></span></div>`).join("") : '<p style="color:var(--muted);font-size:.8rem">Community members will appear here after they sign in.</p>';
+  return `<div class="dashboard-grid"><section><div class="section-head"><h2>NTLONG · Discover art</h2><span>${state.posts.length} uploaded ${state.posts.length === 1 ? "work" : "works"}</span></div><div class="feed">${feed}</div></section><aside class="side-col"><div class="side-card"><h3>People in Paul Sketches</h3><p style="color:var(--muted);font-size:.76rem;line-height:1.4">Everyone who has joined the community.</p><div class="community-people">${people}</div></div><div class="side-card"><h3>About NTLONG</h3><p style="color:var(--muted);font-size:.8rem;line-height:1.5">A home for discovering every real artwork shared by artists on Paul Sketches.</p><button class="text-btn" data-view="news">Open newsroom →</button></div><div class="side-card"><h3>Quick converter</h3><p style="color:var(--muted);font-size:.78rem;margin-top:-8px">Guide rate: 1 GBP ≈ 23.50 LSL</p><div class="converter-row"><input id="amount" type="number" value="100" min="0"><select id="currency"><option value="lsl">Maloti → GBP</option><option value="gbp">GBP → Maloti</option></select></div><div id="conversion-result" class="conversion-result">≈ £4.26</div></div>${state.user.role === "artist" ? '<div class="side-card"><h3>Share your work</h3><p style="color:var(--muted);font-size:.8rem;line-height:1.5">Have something new for the community?</p><button id="open-upload" class="primary-btn upload-btn">＋ Upload artwork</button></div>' : ""}</aside></div>`;
 }
 
 function postCard(post) {
